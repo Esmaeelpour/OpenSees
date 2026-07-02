@@ -245,7 +245,8 @@ UniaxialMaterial* CreepShrinkageACI209::getCopy(void)
 
   theCopy->iterationInStep = iterationInStep;
   theCopy->historyPointCount = historyPointCount;
-  
+  theCopy->lastCommitTime = lastCommitTime;
+
   // Ensure array capacity and copy history
   theCopy->maxSize = maxSize;
   theCopy->DSIG_i = new double[maxSize];
@@ -317,8 +318,7 @@ int
 CreepShrinkageACI209::setTrialStrain(double strain, double strainRate)
 {
   double t = getCurrentTime();
-  
-  
+
   // Enforce non-negative time only when creep is enabled.
   if (ops_Creep == 1 && t < 0.0) {
     opserr << "CreepShrinkageACI209::setTrialStrain - Negative time (" << t
@@ -327,9 +327,9 @@ CreepShrinkageACI209::setTrialStrain(double strain, double strainRate)
   }
 
   trialTotalStrain = strain;
-  
+
   if (ops_Creep == 1) {
-    if (fabs(t-TIME_i[historyPointCount]) <= 0.0001) {
+    if (fabs(t-lastCommitTime) <= 0.0001) {
       trialCreepStrain = committedCreepStrain;
       trialShrinkageStrain = committedShrinkageStrain;
       iterationInStep = 0;
@@ -386,6 +386,8 @@ int CreepShrinkageACI209::commitState(void)
     committedCreepStress = trialStress;
   }
 
+  lastCommitTime = getCurrentTime();
+
   committedTangent           = trialTangent;
   committedStress            = trialStress;
   committedTotalStrain       = trialTotalStrain;
@@ -398,10 +400,11 @@ int CreepShrinkageACI209::commitState(void)
 }
 
 
-int 
+int
   CreepShrinkageACI209::revertToLastCommit(void)
 {
   iterationInStep = 0;
+
   // Restore trial state to last committed state
   trialTotalStrain = committedTotalStrain;
   trialShrinkageStrain = committedShrinkageStrain;
@@ -410,38 +413,39 @@ int
 
   trialTangent = committedTangent;
   trialStress = committedStress;
-  
+
   wrappedMaterial->revertToLastCommit();
-  
+
   return 0;
 }
 
-int 
+int
 CreepShrinkageACI209::revertToStart(void)
 {
-  
+
   committedTangent     = Ec;
   committedStress      = 0.0;
   trialStress          = 0.0;
   committedCreepStress = 0.0;
   trialTangent         = Ec;
 
- 
-  historyPointCount = 0;
 
-  
+  historyPointCount = 0;
+  lastCommitTime = getCurrentTime();
+
+
   trialTotalStrain          = 0.0;
   committedTotalStrain      = 0.0;
   trialCreepStrain          = 0.0;
   trialShrinkageStrain      = 0.0;
   trialMechanicalStrain     = 0.0;
   committedCreepStrain      = 0.0;
-  committedShrinkageStrain  = 0.0; 
+  committedShrinkageStrain  = 0.0;
   committedMechanicalStrain = 0.0;
 
   iterationInStep = 0;
 
-  if (wrappedMaterial) 
+  if (wrappedMaterial)
     wrappedMaterial->revertToStart();
 
   return 0;
@@ -471,7 +475,7 @@ CreepShrinkageACI209::sendSelf(int commitTag, Channel &theChannel)
     return res;
   }
 
-  Vector data(22 + maxSize*2);
+  Vector data(23 + maxSize*2);
   int i = 0;
   data(i++) = tcr;
   data(i++) = Ec;
@@ -482,12 +486,13 @@ CreepShrinkageACI209::sendSelf(int commitTag, Channel &theChannel)
   data(i++) = epscru;
   data(i++) = epscrd;
   data(i++) = tcast;
-  
+
   data(i++) = committedStress;
   data(i++) = committedTangent;
   data(i++) = committedCreepStress;
-  
+
   data(i++) = historyPointCount;
+  data(i++) = lastCommitTime;
   data(i++) = trialCreepStrain;
   data(i++) = trialShrinkageStrain;
   data(i++) = trialMechanicalStrain;
@@ -535,30 +540,31 @@ CreepShrinkageACI209::recvSelf(int commitTag, Channel &theChannel,
   this->setTag(idata(2));  
   maxSize = idata(3);
   
-  Vector data(22 + maxSize*2);
+  Vector data(23 + maxSize*2);
 
   if (theChannel.recvVector(this->getDbTag(), commitTag, data) < 0) {
     opserr << "CreepShrinkageACI209::recvSelf() - failed to recvSelf\n";
     return -1;
   }
-  
+
   int i = 0;
-  tcr = data(i++);    
-  Ec = data(i++);     
-  age = data(i++);     
-  epsshu = data(i++); 
-  epssha = data(i++); 
-  epscra = data(i++); 
-  epscru = data(i++); 
-  epscrd = data(i++); 
-  tcast = data(i++); 
+  tcr = data(i++);
+  Ec = data(i++);
+  age = data(i++);
+  epsshu = data(i++);
+  epssha = data(i++);
+  epscra = data(i++);
+  epscru = data(i++);
+  epscrd = data(i++);
+  tcast = data(i++);
 
   committedStress = data(i++);
   committedTangent = data(i++);
   committedCreepStress = data(i++);
-  
-  historyPointCount = data(i++);        
-  trialCreepStrain = data(i++);         
+
+  historyPointCount = data(i++);
+  lastCommitTime = data(i++);
+  trialCreepStrain = data(i++);
   trialShrinkageStrain = data(i++);     
   trialMechanicalStrain = data(i++);    
   committedMechanicalStrain = data(i++);
@@ -660,7 +666,7 @@ Response* CreepShrinkageACI209::setResponse(const char **argv, int argc,
     theOutput.tag("ResponseType", "C11");
     theResponse =  new MaterialResponse(this, 5, Vector(3));
   }
-  
+
   theOutput.endTag();
   return theResponse;
 }

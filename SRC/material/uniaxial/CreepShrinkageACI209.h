@@ -121,7 +121,13 @@ private:
   double committedTotalStrain;       // Last committed total strain
 
   int    historyPointCount;          // Number of points in stress-time history
-  int    iterationInStep;            // Iteration counter to avoid recomputing within same step 
+  double lastCommitTime;             // Analysis time as of the last successful commit (updated
+                                      // every commitState() call, unlike TIME_i[historyPointCount]
+                                      // which only advances when the stress changes meaningfully).
+                                      // Only ever set inside commitState(), so it is already
+                                      // correct after any number of failed/reverted trial attempts
+                                      // and does not itself need reverting.
+  int    iterationInStep;            // Iteration counter to avoid recomputing within same step
 
   enum{startSize=500, growSize=200};
   int maxSize;                       // Current allocated size of history arrays
