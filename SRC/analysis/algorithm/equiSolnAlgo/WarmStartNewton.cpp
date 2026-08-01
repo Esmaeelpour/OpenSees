@@ -41,6 +41,7 @@ void *OPS_WarmStartNewton()
     double iFactor = 0.0, cFactor = 1.0;
     double trustRadius = 0.25;
     double minConfidence = 0.0;
+    double lookaheadFactor = 1.0;
 
     // Predictor parameters. Extrapolation is the default and the only
     // predictor built in -- it is deterministic and dependency-free, and
@@ -114,6 +115,14 @@ void *OPS_WarmStartNewton()
                 opserr << "WARNING WarmStartNewton -- error reading minConfidence\n";
                 return 0;
             }
+
+        } else if (strcmp(type, "-lookaheadFactor") == 0) {
+            int numData = 1;
+            if (OPS_GetNumRemainingInputArgs() < 1 ||
+                OPS_GetDoubleInput(&numData, &lookaheadFactor) < 0) {
+                opserr << "WARNING WarmStartNewton -- error reading lookaheadFactor\n";
+                return 0;
+            }
         }
     }
 
@@ -122,15 +131,17 @@ void *OPS_WarmStartNewton()
         pred = new ExtrapolationPredictor(gain, minSteps);
 
     return new WarmStartNewton(formTangent, iFactor, cFactor,
-                               trustRadius, minConfidence, pred);
+                               trustRadius, minConfidence, lookaheadFactor, pred);
 }
 
 WarmStartNewton::WarmStartNewton(int theTangentToUse, double iFact, double cFact,
                                  double trustRad, double minConf,
+                                 double lookaheadFact,
                                  NewtonPredictor *pred)
  :EquiSolnAlgo(EquiALGORITHM_TAGS_WarmStartNewton),
   tangent(theTangentToUse), iFactor(iFact), cFactor(cFact),
   trustRadius(trustRad), minConfidence(minConf),
+  lookaheadFactor(lookaheadFact),
   numIterations(0), numPredictedSteps(0), numFallbackSteps(0),
   numRejectedGuesses(0),
   totalIterationsPredicted(0), totalIterationsFallback(0),
@@ -143,6 +154,7 @@ WarmStartNewton::WarmStartNewton()
  :EquiSolnAlgo(EquiALGORITHM_TAGS_WarmStartNewton),
   tangent(CURRENT_TANGENT), iFactor(0.0), cFactor(1.0),
   trustRadius(0.25), minConfidence(0.0),
+  lookaheadFactor(1.0),
   numIterations(0), numPredictedSteps(0), numFallbackSteps(0),
   numRejectedGuesses(0),
   totalIterationsPredicted(0), totalIterationsFallback(0),
@@ -241,6 +253,16 @@ WarmStartNewton::solveCurrentStep(void)
     }
     stepIncr->Zero();
 
+    theTest->setEquiSolnAlgo(*this);
+    if (theTest->start() < 0) {
+        opserr << "WarmStartNewton::solveCurrentStep() -";
+        opserr << "the ConvergenceTest object failed in start()\n";
+        return -3;
+    }
+
+    int result = -1;
+    numIterations = 0;
+
     if (thePredictor != 0) {
 
         if (guessWork == 0 || guessWork->Size() != n) {
@@ -261,7 +283,7 @@ WarmStartNewton::solveCurrentStep(void)
             }
 
             if (accept) {
-                // Never-worse acceptance against the residual we just
+                // First gate: never-worse against the residual we just
                 // formed at the integrator's own predicted point.
                 //
                 // This is also what currently keeps an unconstrained
@@ -283,13 +305,71 @@ WarmStartNewton::solveCurrentStep(void)
                 }
                 double residAfter = theSOE->getB().Norm();
 
-                if (residAfter < residBefore) {
-                    stepIncr->addVector(1.0, dUguess, 1.0);
-                    usedPrediction = true;
-                    numPredictedSteps++;
-                } else {
+                bool residualImproved = (residAfter < residBefore);
+                bool lookaheadPassed = false;
+
+                // Second gate: a single trial-point residual comparison
+                // cannot tell whether the guess actually reduces the
+                // number of iterations still needed -- it can look
+                // locally better while leaving the state somewhere
+                // Newton needs MORE total work to fix (overshoot, wrong-
+                // direction curvature). Form the tangent and solve AT the
+                // guessed point -- this is the mandatory first Newton
+                // iteration regardless of accept/reject, not wasted work
+                // -- and only commit to the guess if the resulting
+                // correction is no larger than the guess itself. If
+                // fixing up after the guess needs a correction as big as
+                // the guess, the guess bought nothing.
+                if (residualImproved) {
+                    SOLUTION_ALGORITHM_tangentFlag = tangent;
+                    if (theIntegrator->formTangent(tangent, iFactor, cFactor) < 0) {
+                        opserr << "WARNING WarmStartNewton::solveCurrentStep() -";
+                        opserr << "the Integrator failed in formTangent()\n";
+                        return -1;
+                    }
+                    if (theSOE->solve() < 0) {
+                        opserr << "WARNING WarmStartNewton::solveCurrentStep() -";
+                        opserr << "the LinearSysOfEqn failed in solve()\n";
+                        return -3;
+                    }
+
+                    double dXTrialNorm = theSOE->getX().Norm();
+                    double guessNorm = dUguess.Norm();
+
+                    lookaheadPassed = (guessNorm < 1.0e-14) ||
+                                       (dXTrialNorm <= lookaheadFactor * guessNorm);
+
+                    if (lookaheadPassed) {
+                        // Commit: this solve IS the first Newton
+                        // iteration, reused rather than repeated.
+                        stepIncr->addVector(1.0, dUguess, 1.0);
+                        stepIncr->addVector(1.0, theSOE->getX(), 1.0);
+
+                        if (theIntegrator->update(theSOE->getX()) < 0) {
+                            opserr << "WARNING WarmStartNewton::solveCurrentStep() -";
+                            opserr << "the Integrator failed in update()\n";
+                            return -4;
+                        }
+                        if (theIntegrator->formUnbalance() < 0) {
+                            opserr << "WARNING WarmStartNewton::solveCurrentStep() -";
+                            opserr << "the Integrator failed in formUnbalance()\n";
+                            return -2;
+                        }
+
+                        result = theTest->test();
+                        numIterations = 1;
+                        this->record(numIterations);
+
+                        usedPrediction = true;
+                        numPredictedSteps++;
+                    }
+                }
+
+                if (!usedPrediction) {
                     // Undo exactly, so the state entering the loop is
-                    // identical to the no-predictor case.
+                    // identical to the no-predictor case. The lookahead
+                    // solve (if it ran) does not need undoing -- it was
+                    // never applied via update().
                     dUguess *= -1.0;
                     if (theIntegrator->update(dUguess) < 0) {
                         opserr << "WARNING WarmStartNewton::solveCurrentStep() -";
@@ -313,19 +393,11 @@ WarmStartNewton::solveCurrentStep(void)
         numFallbackSteps++;
 
     // ------------------------------------------------------------------
-    // NewtonRaphson iteration loop, unchanged.
+    // NewtonRaphson iteration loop, unchanged, picking up from
+    // numIterations (0 for a fallback/rejected step, 1 if the warm-start
+    // guess's lookahead solve was just committed as iteration 1).
     // ------------------------------------------------------------------
-    theTest->setEquiSolnAlgo(*this);
-    if (theTest->start() < 0) {
-        opserr << "WarmStartNewton::solveCurrentStep() -";
-        opserr << "the ConvergenceTest object failed in start()\n";
-        return -3;
-    }
-
-    int result = -1;
-    numIterations = 0;
-
-    do {
+    while (result == -1) {
 
         SOLUTION_ALGORITHM_tangentFlag = tangent;
         if (theIntegrator->formTangent(tangent, iFactor, cFactor) < 0) {
@@ -366,8 +438,7 @@ WarmStartNewton::solveCurrentStep(void)
         result = theTest->test();
         numIterations++;
         this->record(numIterations);
-
-    } while (result == -1);
+    }
 
     if (result == -2) {
         opserr << "WarmStartNewton::solveCurrentStep() -";
@@ -433,27 +504,29 @@ WarmStartNewton::sendSelf(int cTag, Channel &theChannel)
         return -1;
     }
 
-    static Vector data(5);
+    static Vector data(6);
     data(0) = tangent;
     data(1) = iFactor;
     data(2) = cFactor;
     data(3) = trustRadius;
     data(4) = minConfidence;
+    data(5) = lookaheadFactor;
     return theChannel.sendVector(this->getDbTag(), cTag, data);
 }
 
 int
 WarmStartNewton::recvSelf(int cTag, Channel &theChannel, FEM_ObjectBroker &theBroker)
 {
-    static Vector data(5);
+    static Vector data(6);
     if (theChannel.recvVector(this->getDbTag(), cTag, data) < 0)
         return -1;
 
-    tangent       = (int)data(0);
-    iFactor       = data(1);
-    cFactor       = data(2);
-    trustRadius   = data(3);
-    minConfidence = data(4);
+    tangent         = (int)data(0);
+    iFactor         = data(1);
+    cFactor         = data(2);
+    trustRadius     = data(3);
+    minConfidence   = data(4);
+    lookaheadFactor = data(5);
 
     if (thePredictor != 0) {
         delete thePredictor;
@@ -471,7 +544,8 @@ WarmStartNewton::Print(OPS_Stream &s, int flag)
           << (thePredictor != 0 ? thePredictor->getType()
                                 : "none (equivalent to NewtonRaphson)") << "\n";
         s << "  trustRadius: " << trustRadius
-          << "  minConfidence: " << minConfidence << "\n";
+          << "  minConfidence: " << minConfidence
+          << "  lookaheadFactor: " << lookaheadFactor << "\n";
         s << "  steps warm-started: " << numPredictedSteps
           << "  fallback: " << numFallbackSteps
           << "  guesses rejected: " << numRejectedGuesses << "\n";

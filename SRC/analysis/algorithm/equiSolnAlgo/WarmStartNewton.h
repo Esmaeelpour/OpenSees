@@ -90,6 +90,7 @@ public:
                     double cFactor = 1.0,
                     double trustRadius = 0.25,
                     double minConfidence = 0.0,
+                    double lookaheadFactor = 1.0,
                     NewtonPredictor *thePredictor = 0);
     WarmStartNewton();
     ~WarmStartNewton();
@@ -131,6 +132,21 @@ private:
     double iFactor, cFactor;
     double trustRadius;
     double minConfidence;
+
+    // A single trial-point residual check cannot tell whether the guess
+    // actually reduced the number of iterations still needed -- a guess
+    // can look locally better yet leave the state somewhere Newton has
+    // to spend MORE total iterations correcting (overshoot, wrong-
+    // direction curvature). Guard: after the guess passes the residual
+    // check, form the tangent and solve for the correction AT the
+    // guessed point -- this is the mandatory first Newton iteration
+    // regardless, not wasted work. Only truly commit to the guess if
+    // that correction is no larger than the guess itself
+    // (||dX|| <= lookaheadFactor * ||dUguess||): if fixing up after the
+    // guess needs a correction as big as the guess, the guess bought
+    // nothing and is more likely to have overshot or moved off in a bad
+    // direction than to be genuine progress.
+    double lookaheadFactor;
 
     int numIterations;
     int numPredictedSteps;
