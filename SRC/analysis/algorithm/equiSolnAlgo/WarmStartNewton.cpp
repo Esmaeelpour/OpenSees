@@ -340,6 +340,17 @@ WarmStartNewton::solveCurrentStep(void)
             return -3;
         }
 
+        // Must be accumulated before the next solve() overwrites theSOE's
+        // X vector. This is what closes the bootstrap loop: without it,
+        // stepIncr only ever holds an accepted guess (never the Newton
+        // loop's own corrections), so a step with no accepted guess -- the
+        // only kind that can happen before any history exists -- reports a
+        // ~zero converged increment to the predictor via observe(), which
+        // then declines to ever predict (see ExtrapolationPredictor::
+        // predict()'s n1/n2 near-zero guard). The predictor was being
+        // starved of the exact signal it needs to start firing.
+        stepIncr->addVector(1.0, theSOE->getX(), 1.0);
+
         if (theIntegrator->update(theSOE->getX()) < 0) {
             opserr << "WARNING WarmStartNewton::solveCurrentStep() -";
             opserr << "the Integrator failed in update()\n";
