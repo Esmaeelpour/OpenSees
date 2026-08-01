@@ -317,9 +317,22 @@ WarmStartNewton::solveCurrentStep(void)
                 // guessed point -- this is the mandatory first Newton
                 // iteration regardless of accept/reject, not wasted work
                 // -- and only commit to the guess if the resulting
-                // correction is no larger than the guess itself. If
-                // fixing up after the guess needs a correction as big as
-                // the guess, the guess bought nothing.
+                // correction is small relative to a typical full step.
+                //
+                // Compared against referenceScale() (the last converged
+                // step's increment), NOT ||dUguess|| -- an extrapolation
+                // guess is a SECOND difference of consecutive increments
+                // and is intrinsically tiny relative to the increment
+                // itself, so gating on the guess's own magnitude made the
+                // bar nearly impossible to clear regardless of whether
+                // the guess actually helped (empirically: 0% acceptance
+                // up to factor=3, only 3.5% at factor=5, on a 20-story
+                // frame where the ungated predictor got 42% acceptance
+                // with a real ~8% iteration reduction on the accepted
+                // steps). A leftover correction on the order of a full
+                // step's typical size is the more sensible failure
+                // signal: it means the guess bought us essentially
+                // nothing, not that its own magnitude was outscaled.
                 if (residualImproved) {
                     SOLUTION_ALGORITHM_tangentFlag = tangent;
                     if (theIntegrator->formTangent(tangent, iFactor, cFactor) < 0) {
@@ -334,10 +347,10 @@ WarmStartNewton::solveCurrentStep(void)
                     }
 
                     double dXTrialNorm = theSOE->getX().Norm();
-                    double guessNorm = dUguess.Norm();
+                    double scale = this->referenceScale();
 
-                    lookaheadPassed = (guessNorm < 1.0e-14) ||
-                                       (dXTrialNorm <= lookaheadFactor * guessNorm);
+                    lookaheadPassed = (scale <= 0.0) ||
+                                       (dXTrialNorm <= lookaheadFactor * scale);
 
                     if (lookaheadPassed) {
                         // Commit: this solve IS the first Newton

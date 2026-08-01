@@ -141,11 +141,17 @@ private:
     // check, form the tangent and solve for the correction AT the
     // guessed point -- this is the mandatory first Newton iteration
     // regardless, not wasted work. Only truly commit to the guess if
-    // that correction is no larger than the guess itself
-    // (||dX|| <= lookaheadFactor * ||dUguess||): if fixing up after the
-    // guess needs a correction as big as the guess, the guess bought
-    // nothing and is more likely to have overshot or moved off in a bad
-    // direction than to be genuine progress.
+    // that correction is small relative to a typical full step
+    // (||dX|| <= lookaheadFactor * referenceScale()): a leftover
+    // correction on the order of a normal step's own size means the
+    // guess bought essentially nothing. Deliberately NOT compared
+    // against ||dUguess|| -- an extrapolation guess is a second
+    // difference of consecutive increments and is intrinsically tiny,
+    // so gating on its own magnitude made the bar nearly impossible to
+    // clear regardless of whether the guess actually helped (measured:
+    // near-zero acceptance up to factor=3 on a 20-story frame where
+    // dropping this gate entirely got 42% acceptance and a real ~8%
+    // iteration reduction on the accepted steps).
     double lookaheadFactor;
 
     int numIterations;
