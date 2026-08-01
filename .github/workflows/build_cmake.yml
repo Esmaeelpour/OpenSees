@@ -2,7 +2,7 @@ name: CMake Build
 
 on:
   push:
-    branches: [master]
+    branches: [master, warm-start-newton]
 
   pull_request:
     branches: [master]

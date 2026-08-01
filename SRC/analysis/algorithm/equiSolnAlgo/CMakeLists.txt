@@ -8,6 +8,8 @@ target_sources(OPS_Analysis
     PRIVATE
       EquiSolnAlgo.cpp 
       ExpressNewton.cpp
+      WarmStartNewton.cpp
+      ExtrapolationPredictor.cpp
       Linear.cpp 
       NewtonRaphson.cpp
       ModifiedNewton.cpp 
@@ -26,6 +28,8 @@ target_sources(OPS_Analysis
     PUBLIC
       EquiSolnAlgo.h 
       ExpressNewton.h
+      WarmStartNewton.h
+      ExtrapolationPredictor.h
       Linear.h 
       NewtonRaphson.h
       ModifiedNewton.h 

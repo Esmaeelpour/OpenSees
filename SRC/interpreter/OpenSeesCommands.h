@@ -461,6 +461,7 @@ void* OPS_SecantNewton();
 void* OPS_PeriodicNewton();
 void* OPS_NewtonLineSearch();
 void* OPS_ExpressNewton();
+void* OPS_WarmStartNewton();
 
 void* OPS_ParallelNumberer();
 void* OPS_ParallelRCM();

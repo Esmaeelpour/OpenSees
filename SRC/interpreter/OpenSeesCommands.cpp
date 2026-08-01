@@ -1927,6 +1927,9 @@ int OPS_Algorithm()
     } else if (strcmp(type, "ExpressNewton") == 0) {
 	theAlgo = (EquiSolnAlgo*) OPS_ExpressNewton();	
 
+    } else if (strcmp(type, "WarmStartNewton") == 0) {
+	theAlgo = (EquiSolnAlgo*) OPS_WarmStartNewton();
+
     } else if (strcmp(type, "Broyden") == 0) {
 	theAlgo = (EquiSolnAlgo*)OPS_Broyden();
 

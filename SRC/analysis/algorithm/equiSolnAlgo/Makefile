@@ -5,7 +5,9 @@ OBJS       = EquiSolnAlgo.o Linear.o NewtonRaphson.o \
         KrylovNewton.o PeriodicNewton.o AcceleratedNewton.o \
         LineSearch.o InitialInterpolatedLineSearch.o NewtonHallM.o \
 	SecantLineSearch.o RegulaFalsiLineSearch.o BisectionLineSearch.o \
-	ExpressNewton.o
+	ExpressNewton.o \
+	WarmStartNewton.o \
+	ExtrapolationPredictor.o
 
 # Compilation control
 
