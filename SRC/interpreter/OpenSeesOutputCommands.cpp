@@ -76,6 +76,9 @@ UPDATES, ENHANCEMENTS, OR MODIFICATIONS.
 #include <UniaxialMaterial.h>
 #include <SectionForceDeformation.h>
 #include <Damping.h>
+#include <EquiSolnAlgo.h>
+
+EquiSolnAlgo** OPS_GetAlgorithm(void);
 
 void* OPS_NodeRecorder();
 void* OPS_EnvelopeNodeRecorder();
@@ -709,15 +712,14 @@ int printElement(OPS_Stream &output)
 
 int printAlgorithm(OPS_Stream &output)
 {
-    /*int eleArg = 0;
     int argc = OPS_GetNumRemainingInputArgs();
 
     EquiSolnAlgo** theAlgorithm = OPS_GetAlgorithm();
-    if (theAlgorithm == 0) return -1;
+    if (theAlgorithm == 0 || *theAlgorithm == 0) return -1;
 
     // if just 'print <filename> algorithm'- no flag
     if (argc == 0) {
-        theAlgorithm->Print(output);
+        (*theAlgorithm)->Print(output);
         return 0;
     }
 
@@ -728,7 +730,7 @@ int printAlgorithm(OPS_Stream &output)
         opserr << "WARNING print algorithm failed to get integer flag: \n";
         return -1;
     }
-    theAlgorithm->Print(output, flag);*/
+    (*theAlgorithm)->Print(output, flag);
 
     return 0;
 }
