@@ -1,0 +1,103 @@
+version: 2.1
+
+jobs:
+  build-and-test:
+    docker:
+      - image: cimg/python:3.11
+    resource_class: medium
+    steps:
+      - checkout
+
+      - run:
+          name: Install System Dependencies
+          command: |
+            sudo apt-get update
+            sudo apt-get install -y cmake g++ gfortran build-essential ccache
+
+      - restore_cache:
+          keys:
+            - conan-cache-v1-{{ checksum "conanfile.py" }}
+            - conan-cache-v1-
+
+      - restore_cache:
+          keys:
+            - ccache-cache-v1-{{ .Branch }}-{{ .Revision }}
+            - ccache-cache-v1-{{ .Branch }}-
+            - ccache-cache-v1-
+
+      - run:
+          name: Install Conan
+          command: |
+            pip install conan
+            conan profile detect --force
+
+      - run:
+          name: Conan Install Dependencies
+          no_output_timeout: 30m
+          command: |
+            conan install . --build=missing
+
+      - save_cache:
+          key: conan-cache-v1-{{ checksum "conanfile.py" }}
+          paths:
+            - ~/.conan2
+
+      - run:
+          name: Configure CMake
+          command: |
+            PYTHON_EXEC=$(python3 -c "import sys; print(sys.executable)")
+            PYTHON_INC=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
+            PYTHON_LIB=$(python3 -c "import sysconfig, os; print(os.path.join(sysconfig.get_config_var('LIBDIR'), 'libpython' + sysconfig.get_config_var('LDVERSION') + '.so'))")
+            echo "Python executable: $PYTHON_EXEC"
+            echo "Python include: $PYTHON_INC"
+            echo "Python library: $PYTHON_LIB"
+            
+            # Configure ccache
+            ccache -M 5G
+            ccache -s
+            
+            cmake -S . -B build/Release \
+              -DCMAKE_TOOLCHAIN_FILE=build/Release/generators/conan_toolchain.cmake \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_INSTALL_PREFIX=$HOME/bin \
+              -DPython3_EXECUTABLE="$PYTHON_EXEC" \
+              -DPython3_INCLUDE_DIR="$PYTHON_INC" \
+              -DPython3_LIBRARY="$PYTHON_LIB" \
+              -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache
+
+      - run:
+          name: Build OpenSeesPy (Shared Library)
+          no_output_timeout: 60m
+          command: |
+            cd build/Release
+            cmake --build . --target OpenSeesPy -j$(nproc)
+            mv OpenSeesPy.so opensees.so
+
+      - save_cache:
+          key: ccache-cache-v1-{{ .Branch }}-{{ .Revision }}
+          paths:
+            - ~/.cache/ccache
+
+      - run:
+          name: Verify OpenSeesPy Basic Execution
+          command: |
+            export PYTHONPATH="./build/Release"
+            python3 ./EXAMPLES/ExamplePython/example_variable_analysis.py
+
+      - run:
+          name: Run Python Tests
+          command: |
+            python3 -m pip install pytest numpy
+            cp build/Release/opensees.so tests/
+            cd tests
+            pytest -v
+
+      - store_artifacts:
+          path: ./build/Release/opensees.so
+          destination: opensees.so
+
+workflows:
+  build_pipeline:
+    jobs:
+      - build-and-test
